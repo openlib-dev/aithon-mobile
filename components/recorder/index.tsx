@@ -1,25 +1,55 @@
-import { Button, StyleSheet, TouchableOpacity, View } from 'react-native'
-import React, { useEffect, useState } from 'react'
+import conversation from '@/api/chat';
 import { ThemedView } from '@/components/ThemedView';
-import { ThemedText } from '@/components/ThemedText';
-import { Audio } from 'expo-av';
-import { Recording } from '@/interface';
-import Wave from './wave';
+import { storedAtom } from '@/store';
+import { getUploadForm } from '@/utils';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRequest } from 'ahooks';
+import { Audio } from 'expo-av';
+import { router } from 'expo-router';
+import { useAtom } from 'jotai';
+import React, { useEffect, useState } from 'react';
+import { Button, StyleSheet, TouchableOpacity, View } from 'react-native';
+import Wave, { WaveData } from './wave';
 
-
-const data = [1, 6, 39, 40, 50, 22, 7, 15, 12, 1, 6, 39, 40, 50, 22, 7, 15, 18, 1, 6, 39, 40, 50, 22, 7, 15, 12, 1, 6, 39, 40, 50, 22, 7, 15, 12, 1, 6, 39, 40, 50, 22, 7, 15, 12, 1, 6, 39, 40, 50, 22, 7, 15, 12]
 
 const Recorder = () => {
+	const [{ device_id }] = useAtom(storedAtom)
+
+	const { loading: sendMessageLoading, run: sendMessage } = useRequest(conversation.messageSend, {
+		manual: true,
+		onSuccess: (e) => {
+			router.navigate({
+				pathname: 'chat', params: {
+					conversationId: conversationData?.id
+				}
+			})
+		}
+	})
+	const { data: uploadData, loading: uploadLoading, run: uploadRun } = useRequest(conversation.upload, {
+		manual: true,
+		onSuccess: (e) => {
+			createConversation(device_id!)
+		}
+	})
+	const { data: conversationData, loading: createConversationLoading, run: createConversation } = useRequest(conversation.create, {
+		manual: true,
+		onSuccess: (e) => {
+			sendMessage(device_id!, {
+				conversation_id: e.id,
+				message_text: uploadData?.text!,
+				message_url: uploadData?.path!
+			})
+		}
+	})
+
 	const [recording, setRecording] = useState<Audio.Recording>();
-	const [recordings, setRecordings] = useState<Recording[]>([]);
 	const [currentTime, setTime] = useState(0);
 	const [currIndex, setIndex] = useState(0);
 
 	useEffect(() => {
 		const interval = setInterval(() => {
 			const newIndex = currIndex + 1;
-			setTime(data[currIndex]);
+			setTime(WaveData[currIndex]);
 			setIndex(newIndex);
 		}, 500)
 		return () => clearInterval(interval)
@@ -33,67 +63,53 @@ const Recorder = () => {
 					allowsRecordingIOS: true,
 					playsInSilentModeIOS: true
 				});
-				const { recording } = await Audio.Recording.createAsync();
+				const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets['HIGH_QUALITY']);
 				setRecording(recording);
 			}
-		} catch (err) { }
+		} catch (err) {
+		}
 	}
 
 	async function stopRecording() {
-		setRecording(undefined);
+		if (!device_id) {
+			return
+		}
 		if (!recording) {
 			return
 		}
+
+		setRecording(undefined);
+
 		await recording.stopAndUnloadAsync();
-		let allRecordings = [...recordings];
-		const { sound, status } = await recording.createNewLoadedSoundAsync();
-
-		if (status.isLoaded)
-			allRecordings.push({
-				sound: sound,
-				duration: getDurationFormatted(status.durationMillis || 0),
-				file: recording.getURI()
-			});
-
-		setRecordings(allRecordings);
-	}
-
-	function getDurationFormatted(milliseconds: number) {
-		const minutes = milliseconds / 1000 / 60;
-		const seconds = Math.round((minutes - Math.floor(minutes)) * 60);
-		return seconds < 10 ? `${Math.floor(minutes)}:0${seconds}` : `${Math.floor(minutes)}:${seconds}`
-	}
-
-	function getRecordingLines() {
-		return recordings.map((recordingLine, index) => {
-			return (
-				<ThemedText key={index} style={styles.row}>
-					<ThemedText style={styles.fill}>
-						Recording #{index + 1} | {recordingLine.duration}
-					</ThemedText>
-					<Button onPress={() => recordingLine.sound.replayAsync()} title="Play"></Button>
-				</ThemedText>
-			);
+		await Audio.setAudioModeAsync({
+			allowsRecordingIOS: false,
+			playsInSilentModeIOS: true,
 		});
-	}
 
+		// const { status } = await recording.createNewLoadedSoundAsync();
+		// if (status.isLoaded) {
+		uploadRun(device_id, getUploadForm(recording))
+		// }
+	}
 	return (
 		<ThemedView style={styles.container}>
-			<TouchableOpacity onPress={recording ? stopRecording : startRecording} style={styles.waveContainer}>
+			<TouchableOpacity disabled={createConversationLoading || sendMessageLoading || uploadLoading} onPress={recording ? stopRecording : startRecording} style={styles.waveContainer}>
 				{recording && <Wave currentVolume={currentTime} />}
 				<View style={{
 					height: 100, width: 100, borderRadius: 60,
 					alignItems: 'center',
 					justifyContent: 'center',
-					backgroundColor: 'rgba(125,244,102,0.9)',
+					backgroundColor: 'rgba(0,72,18,0.9)',
 					zIndex: 3
 				}}>
 					{
-						!recording ? <Ionicons name="mic" size={38} color="green" /> : <Ionicons name="stop" size={38} color="red" />
+						!recording ? <Ionicons name="mic" size={38} color="#fff" /> : <Ionicons name="stop" size={38} color="#fff" />
 					}
 				</View>
 			</TouchableOpacity>
-			{getRecordingLines()}
+			<Button title='Түүх' onPress={() => router.navigate({
+				pathname: 'history'
+			})} />
 		</ThemedView>
 	)
 }
@@ -110,7 +126,8 @@ const styles = StyleSheet.create({
 		width: 100,
 		height: 100,
 		justifyContent: 'center',
-		alignItems: 'center'
+		alignItems: 'center',
+		marginBottom: 20,
 	},
 	row: {
 		flexDirection: 'row',
@@ -124,3 +141,4 @@ const styles = StyleSheet.create({
 		margin: 15
 	}
 })
+

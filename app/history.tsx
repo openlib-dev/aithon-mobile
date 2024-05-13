@@ -1,12 +1,12 @@
 import { StyleSheet } from 'react-native';
 
 import { ThemedView } from '@/components/ThemedView';
-import Recorder from '@/components/recorder';
+import History from '@/components/recorder/history';
 
-export default function HomeScreen() {
+export default function RecordersScreen() {
 	return (
 		<ThemedView style={styles.container}>
-			<Recorder />
+			<History />
 		</ThemedView>
 	);
 }
